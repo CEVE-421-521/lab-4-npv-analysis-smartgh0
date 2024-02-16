@@ -1,8 +1,8 @@
 ---
 title: "Lab 4: House Elevation NPV Analysis"
-author: "Your Name"
+author: "Solomon Nyamekye"
 jupyter: julia-1.10
-date: 2024-02-08
+date: 2024-02-13
 week: 5
 categories: [Lab]
 
@@ -11,23 +11,23 @@ format:
 
     # YOU DO NOT NEED BOTH PDF AND DOCX.
     # COMMENT OR DELETE THE ONE YOU DON'T WANT TO USE.
-    pdf:
-        documentclass: article
-        fontsize: 11pt
-        geometry:
-            - margin=1in  
+    #pdf:
+        #documentclass: article
+        #fontsize: 11pt
+        #geometry:
+            #- margin=1in  
+        #number-sections: true
+        #code-line-numbers: true
+    docx: 
+        toc: true
+        fig-format: png
         number-sections: true
         code-line-numbers: true
-    #docx: 
-    #    toc: true
-    #    fig-format: png
-    #    number-sections: true
-    #    code-line-numbers: true
 
 # these are optional
 # if you have cache=true, you'll need the jupyter-cache package installed
 execute: 
-  cache: true
+  #cache: true
   freeze: true
 
 date-format: "ddd., MMM. D"
@@ -50,3 +50,124 @@ Plots.default(; margin=6Plots.mm)
 include("depthdamage.jl")
 ```
 
+# Depth-damage function
+
+```{julia}
+
+
+```
+
+# Single Year Function
+```{julia}
+
+house_area = 8000u"ft^2" # 
+house_value = 140_000
+
+haz_fl_dept = CSV.read("data/haz_fl_dept.csv", DataFrame) # read in the file
+desc = "Average hotel/motel, Contents (Equipment/Inventory)"
+row = @rsubset(haz_fl_dept, :Description == desc)[1, :] # select the row I want
+dd = DepthDamageData(row) # extract the depth-damage data
+
+ # get the depth-damage function
+    damage_fn = get_depth_damage_function(dd.depths, dd.damages) 
+
+    #Flood distribution from GEV
+    gauge_dist = GeneralizedExtremeValue(8, 1.5, 0.1) # This is same hypothetical gauge distribution used for lab 3
+    offset = 5.35 # hypothetical height from house to gauge
+    flood_dist = GeneralizedExtremeValue(gauge_dist.μ - offset, gauge_dist.σ, gauge_dist.ξ)
+
+     #calculating expected damage in percentage
+    samples = rand(flood_dist, 100_000) .* 1u"ft"
+    damages = damage_fn.(samples)
+    expected_damages_pct = mean(damages)
+    elevation_cost = get_elevation_cost_function()
+   
+function single_year_cost_benefit(flood_dist, damage_fn, elevation_cost, house_area, house_value, Δh)
+
+    # calculate the expected damages
+    c_dmg = house_value * expected_damages_pct/100
+
+    # calculate the cost of elevating
+    elevation_cost = get_elevation_cost_function()
+    c_constr = elevation_cost.(Δh, house_area)
+   
+    # return the total cost and benefit
+    return -c_constr - c_dmg
+end
+
+```
+
+# NPV Function
+
+```{julia}
+function npv_cost_benefit(flood_dist, damage_fn, elevation_cost, house_area, house_value, Δh, T, discount_rate)
+
+    T= 10
+   
+     annual_dmg = single_year_cost_benefit(flood_dist, damage_fn, elevation_cost, house_area, house_value, Δh)
+    
+    # calculate the costs and benefits for each year, and then discount
+     #npv = sum(annual_dmg .* (1 - discount_rate) .^ (0:9))
+     npv2 = sum([annual_dmg * (1 - discount_rate)^(i - 1) for i in 1:10])
+
+    return npv2
+ end
+```
+# One SOW, several actions (Δh [0ft, 2ft, 4ft, 6ft, 7ft])
+
+```{julia}
+
+    Δh_values = [0u"ft", 1u"ft", 2u"ft", 3u"ft", 4u"ft", 5u"ft", 6u"ft", 7u"ft", 8u"ft"]
+
+    discount_rate = 0.5
+    T= 10
+
+for Δh in Δh_values
+
+    npv_result = npv_cost_benefit(flood_dist, damage_fn, elevation_cost, house_area, house_value, Δh, T, discount_rate)
+
+    println(npv_result)
+
+ end
+
+```
+- The NPV varies significantly based on the (Δh) chosen.
+
+- The Δh = 0ft is the less negative npv among other Δh explored and is relatively most cost-effective option among options Δh  explore.
+
+# Sensitivity test
+
+```{julia}
+
+Δh = 0u"ft"
+T = 10
+
+
+# Generate random discount rates using a normal distribution
+discount_rates = rand(Normal(4, 2), 100_000)
+
+# Calculate NPV for each discount rate in the Monte Carlo simulation
+
+npv_sim = [npv_cost_benefit(flood_dist, damage_fn, elevation_cost, house_area, house_value, Δh, T, rate) for rate in discount_rates]
+
+# Calculate the mean of the NPV results
+npv_mean = mean(npv_sim)
+
+# Print or analyze the results as needed
+npv_mean
+
+```
+# Discussion
+
+## 1.
+NPV for different actions are different which means different collective of actions under a certain scenario will give different expectations.
+
+## 2.
+- The sensitivity test considers uncertainty discount rates using distribution of discounts rates. 
+- The npv varies between the range 1.5x^11 to 1.6X10^11 
+
+## 3. 
+- We considered only one SOW, we assume constant parameters over time i.e elevation cost, flood distribution, upfront value etc.
+- These limitations could add up to the uncertainty in our npv values.
+- To address thise limitations additional sensitivity analyses should be conducted e.g., sensitivity to house value, construction costs, house maintainance, depth-damage function to find out how our npv values will response to these factors.
+- exploring npv sensitivity over different time frames like T=20 years to capture long-term implications.
